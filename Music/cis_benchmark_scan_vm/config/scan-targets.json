@@ -1,0 +1,6 @@
+{
+  "subscriptionId": "your-subscription-id-here",
+  "vms": [
+    { "vm": "Test-for-cis", "rg": "Trivikrama" }
+  ]
+}

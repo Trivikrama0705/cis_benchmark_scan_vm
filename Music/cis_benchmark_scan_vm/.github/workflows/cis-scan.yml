@@ -1,0 +1,62 @@
+name: cis-os-scan
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * 1'   # every Monday 3 AM
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  build-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: set-matrix
+        run: |
+          echo "matrix=$(jq -c '.vms' config/scan-targets.json)" >> "$GITHUB_OUTPUT"
+
+  scan:
+    needs: build-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 1
+      matrix:
+        include: ${{ fromJson(needs.build-matrix.outputs.matrix) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Run scan on ${{ matrix.vm }}
+        run: |
+          az vm run-command invoke \
+            --resource-group "${{ matrix.rg }}" \
+            --name "${{ matrix.vm }}" \
+            --command-id RunShellScript \
+            --scripts @scripts/scan-cis.sh \
+            --query "value[0].message" -o tsv > raw-output.txt
+
+      - name: Decode and save report
+        run: |
+          mkdir -p reports
+          grep -A1 "stdout" raw-output.txt | tail -1 | base64 -d > "reports/${{ matrix.vm }}-$(date +%Y-%m-%d).html" || echo "decode failed, check raw-output.txt"
+
+      - name: Commit report to repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase
+          git add reports/
+          git commit -m "CIS scan report: ${{ matrix.vm }} - $(date +%Y-%m-%d)" || echo "No changes to commit"
+          git push
