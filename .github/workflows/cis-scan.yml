@@ -30,9 +30,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Sync latest before making changes
-        run: git pull --rebase
+      - run: git pull --rebase
 
       - uses: azure/login@v2
         with:
@@ -40,42 +38,42 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Check VM power state
+      - name: Generate SAS URL for this VM's report
+        id: sas
         run: |
-          STATE=$(az vm get-instance-view \
-            --resource-group "${{ matrix.rg }}" \
-            --name "${{ matrix.vm }}" \
-            --query "instanceView.statuses[?starts_with(code, 'PowerState/')].displayStatus" \
-            -o tsv)
-          echo "VM power state: $STATE"
+          BLOB_NAME="${{ matrix.vm }}-$(date +%Y-%m-%d).html"
+          EXPIRY=$(date -u -d "+1 hour" '+%Y-%m-%dT%H:%MZ')
+          SAS_TOKEN=$(az storage blob generate-sas \
+            --account-name "${{ secrets.AZURE_STORAGE_ACCOUNT }}" \
+            --container-name reports \
+            --name "$BLOB_NAME" \
+            --permissions cw \
+            --expiry "$EXPIRY" \
+            --auth-mode login --as-user -o tsv)
+          SAS_URL="https://${{ secrets.AZURE_STORAGE_ACCOUNT }}.blob.core.windows.net/reports/${BLOB_NAME}?${SAS_TOKEN}"
+          echo "sas_url=$SAS_URL" >> "$GITHUB_OUTPUT"
+          echo "blob_name=$BLOB_NAME" >> "$GITHUB_OUTPUT"
 
-      - name: Run scan on ${{ matrix.vm }}
+      - name: Run scan on ${{ matrix.vm }} (uploads directly to blob storage)
         run: |
           az vm run-command invoke \
             --resource-group "${{ matrix.rg }}" \
             --name "${{ matrix.vm }}" \
             --command-id RunShellScript \
             --scripts @scripts/scan-cis.sh \
-            --query "value[0].message" -o tsv > raw-output.txt
-          echo "----- RAW OUTPUT START -----"
-          cat raw-output.txt
-          echo "----- RAW OUTPUT END -----"
+            --parameters "${{ steps.sas.outputs.sas_url }}" \
+            --query "value[0].message" -o tsv
 
-      - name: Upload raw output for debugging
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: raw-output-${{ matrix.vm }}
-          path: raw-output.txt
-
-      - name: Decode and save report
+      - name: Download real report from blob storage
         run: |
           mkdir -p reports
-          awk '/\[stdout\]/{flag=1; next} /\[stderr\]/{flag=0} flag' raw-output.txt > b64.txt
-          echo "----- BASE64 EXTRACT SIZE -----"
-          wc -l b64.txt
-          base64 -d b64.txt > "reports/${{ matrix.vm }}-$(date +%Y-%m-%d).html" || echo "decode failed, check raw-output.txt"
-          ls -la "reports/${{ matrix.vm }}-$(date +%Y-%m-%d).html"
+          az storage blob download \
+            --account-name "${{ secrets.AZURE_STORAGE_ACCOUNT }}" \
+            --container-name reports \
+            --name "${{ steps.sas.outputs.blob_name }}" \
+            --file "reports/${{ steps.sas.outputs.blob_name }}" \
+            --auth-mode login
+          ls -la "reports/${{ steps.sas.outputs.blob_name }}"
 
       - name: Commit report to repo
         run: |
