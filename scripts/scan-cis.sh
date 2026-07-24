@@ -2,7 +2,7 @@
 set -e
 
 echo "=== SCAN SCRIPT STARTED ==="
-SAS_URL="$sasurl"   # Azure exports named parameters as environment variables
+SAS_URL="__SAS_URL_PLACEHOLDER__"
 
 OS_ID=$(grep -oP '(?<=^ID=).+' /etc/os-release 2>/dev/null | tr -d '"' || echo "unknown")
 echo "Detected OS: $OS_ID"
@@ -32,28 +32,17 @@ curl -sL -o /tmp/content.zip "$LATEST_URL"
 mkdir -p /tmp/scap-content
 unzip -oq /tmp/content.zip -d /tmp/scap-content
 
-echo "=== FULL LIST of all XML content files in the package ==="
-find /tmp/scap-content -iname "*.xml" | sort
-
-echo "=== Searching for a usable Ubuntu/Debian datastream or xccdf file ==="
-CONTENT=$(find /tmp/scap-content \( -iname "*-ds.xml" -o -iname "*-xccdf.xml" \) \
-  | grep -i ubuntu | head -1)
-
+CONTENT=$(find /tmp/scap-content \( -iname "*-ds.xml" -o -iname "*-xccdf.xml" \) | grep -i ubuntu | head -1)
 if [ -z "$CONTENT" ]; then
-  echo "No ubuntu-named file found, trying debian as closest relative..."
-  CONTENT=$(find /tmp/scap-content \( -iname "*-ds.xml" -o -iname "*-xccdf.xml" \) \
-    | grep -i debian | head -1)
+  CONTENT=$(find /tmp/scap-content \( -iname "*-ds.xml" -o -iname "*-xccdf.xml" \) | grep -i debian | head -1)
 fi
-
 if [ -z "$CONTENT" ]; then
-  echo "Still nothing - picking the FIRST available datastream/xccdf file as last resort"
   CONTENT=$(find /tmp/scap-content \( -iname "*-ds.xml" -o -iname "*-xccdf.xml" \) | head -1)
 fi
-
 echo "Using content file: $CONTENT"
 
 if [ -z "$CONTENT" ]; then
-  echo "ERROR: Truly no usable content file found anywhere in the package."
+  echo "ERROR: No usable SCAP content found."
   exit 1
 fi
 
@@ -62,13 +51,13 @@ oscap xccdf eval \
   --profile xccdf_org.ssgproject.content_profile_cis_level1_server \
   --results /tmp/results.xml \
   --report /tmp/report.html \
-  "$CONTENT" || true
+  "$CONTENT" > /dev/null 2>&1 || true
 
 ls -la /tmp/report.html || { echo "ERROR: report.html was not created"; exit 1; }
 
 echo "=== Uploading report directly to blob storage (bypasses stdout size limit) ==="
-if [ -z "$SAS_URL" ]; then
-  echo "ERROR: SAS_URL is empty - parameter was not passed correctly"
+if [ "$SAS_URL" == "__SAS_URL_PLACEHOLDER__" ] || [ -z "$SAS_URL" ]; then
+  echo "ERROR: SAS_URL placeholder was not replaced before sending script"
   exit 1
 fi
 
