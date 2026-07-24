@@ -3,7 +3,7 @@ name: cis-os-scan
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 3 * * 1'   # every Monday 3 AM
+    - cron: '0 3 * * 1'
 
 permissions:
   id-token: write
@@ -16,7 +16,6 @@ jobs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
-
       - id: set-matrix
         run: |
           echo "matrix=$(jq -c '.vms' config/scan-targets.json)" >> "$GITHUB_OUTPUT"
@@ -32,6 +31,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Sync latest before making changes
+        run: git pull --rebase
+
       - uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -46,9 +48,6 @@ jobs:
             --query "instanceView.statuses[?starts_with(code, 'PowerState/')].displayStatus" \
             -o tsv)
           echo "VM power state: $STATE"
-          if [ "$STATE" != "VM running" ]; then
-            echo "::warning::VM is not running (state: $STATE). Scan may fail."
-          fi
 
       - name: Run scan on ${{ matrix.vm }}
         run: |
@@ -72,15 +71,16 @@ jobs:
       - name: Decode and save report
         run: |
           mkdir -p reports
-          grep -A1 "stdout" raw-output.txt | tail -1 | base64 -d > "reports/${{ matrix.vm }}-$(date +%Y-%m-%d).html" || echo "decode failed, check raw-output.txt"
-          echo "----- REPORT FILE SIZE -----"
+          awk '/\[stdout\]/{flag=1; next} /\[stderr\]/{flag=0} flag' raw-output.txt > b64.txt
+          echo "----- BASE64 EXTRACT SIZE -----"
+          wc -l b64.txt
+          base64 -d b64.txt > "reports/${{ matrix.vm }}-$(date +%Y-%m-%d).html" || echo "decode failed, check raw-output.txt"
           ls -la "reports/${{ matrix.vm }}-$(date +%Y-%m-%d).html"
 
       - name: Commit report to repo
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git pull --rebase
           git add reports/
           git commit -m "CIS scan report: ${{ matrix.vm }} - $(date +%Y-%m-%d)" || echo "No changes to commit"
           git push
