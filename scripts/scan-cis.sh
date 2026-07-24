@@ -2,7 +2,8 @@
 set -e
 
 echo "=== SCAN SCRIPT STARTED ==="
-SAS_URL="__SAS_URL_PLACEHOLDER__"
+SAS_URL_B64="__SAS_URL_PLACEHOLDER__"
+SAS_URL=$(echo "$SAS_URL_B64" | base64 -d)
 
 OS_ID=$(grep -oP '(?<=^ID=).+' /etc/os-release 2>/dev/null | tr -d '"' || echo "unknown")
 echo "Detected OS: $OS_ID"
@@ -23,41 +24,31 @@ LATEST_URL=$(curl -s https://api.github.com/repos/ComplianceAsCode/content/relea
   | grep "browser_download_url.*\.zip" | head -1 | cut -d '"' -f 4)
 echo "Content package URL: $LATEST_URL"
 
-if [ -z "$LATEST_URL" ]; then
-  echo "ERROR: Could not resolve SCAP content download URL"
-  exit 1
-fi
-
 curl -sL -o /tmp/content.zip "$LATEST_URL"
 mkdir -p /tmp/scap-content
 unzip -oq /tmp/content.zip -d /tmp/scap-content
 
 CONTENT=$(find /tmp/scap-content \( -iname "*-ds.xml" -o -iname "*-xccdf.xml" \) | grep -i ubuntu | head -1)
-if [ -z "$CONTENT" ]; then
-  CONTENT=$(find /tmp/scap-content \( -iname "*-ds.xml" -o -iname "*-xccdf.xml" \) | grep -i debian | head -1)
-fi
-if [ -z "$CONTENT" ]; then
-  CONTENT=$(find /tmp/scap-content \( -iname "*-ds.xml" -o -iname "*-xccdf.xml" \) | head -1)
-fi
+[ -z "$CONTENT" ] && CONTENT=$(find /tmp/scap-content \( -iname "*-ds.xml" -o -iname "*-xccdf.xml" \) | head -1)
 echo "Using content file: $CONTENT"
 
-if [ -z "$CONTENT" ]; then
-  echo "ERROR: No usable SCAP content found."
-  exit 1
-fi
-
-echo "=== Running scan ==="
+echo "=== Running scan (showing rule-by-rule progress) ==="
 oscap xccdf eval \
   --profile xccdf_org.ssgproject.content_profile_cis_level1_server \
   --results /tmp/results.xml \
   --report /tmp/report.html \
-  "$CONTENT" > /dev/null 2>&1 || true
+  "$CONTENT" | grep -E "^(Title|Rule|Result)" || true
 
 ls -la /tmp/report.html || { echo "ERROR: report.html was not created"; exit 1; }
 
-echo "=== Uploading report directly to blob storage (bypasses stdout size limit) ==="
+echo "=== Compliance summary ==="
+PASS_COUNT=$(grep -c "<result>pass</result>" /tmp/results.xml || echo 0)
+FAIL_COUNT=$(grep -c "<result>fail</result>" /tmp/results.xml || echo 0)
+echo "Passed: $PASS_COUNT | Failed: $FAIL_COUNT"
+
+echo "=== Uploading report directly to blob storage ==="
 if [ "$SAS_URL" == "__SAS_URL_PLACEHOLDER__" ] || [ -z "$SAS_URL" ]; then
-  echo "ERROR: SAS_URL placeholder was not replaced before sending script"
+  echo "ERROR: SAS_URL was not decoded correctly"
   exit 1
 fi
 
