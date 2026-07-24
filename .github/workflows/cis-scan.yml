@@ -61,7 +61,7 @@ jobs:
             --name "${{ matrix.vm }}" \
             --command-id RunShellScript \
             --scripts @scripts/scan-cis.sh \
-            --parameters "${{ steps.sas.outputs.sas_url }}" \
+            --parameters "sasurl=${{ steps.sas.outputs.sas_url }}" \
             --query "value[0].message" -o tsv
 
       - name: Download real report from blob storage
