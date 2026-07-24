@@ -32,20 +32,28 @@ curl -sL -o /tmp/content.zip "$LATEST_URL"
 mkdir -p /tmp/scap-content
 unzip -oq /tmp/content.zip -d /tmp/scap-content
 
-echo "=== Locating best-matching content file for $OS_ID $OS_VERSION ==="
-CONTENT=$(find /tmp/scap-content -iname "ssg-${OS_ID}${OS_VERSION//./}-xccdf.xml" 2>/dev/null | head -1)
+echo "=== FULL LIST of all XML content files in the package ==="
+find /tmp/scap-content -iname "*.xml" | sort
+
+echo "=== Searching for a usable Ubuntu/Debian datastream or xccdf file ==="
+CONTENT=$(find /tmp/scap-content \( -iname "*-ds.xml" -o -iname "*-xccdf.xml" \) \
+  | grep -i ubuntu | head -1)
+
 if [ -z "$CONTENT" ]; then
-  CONTENT=$(find /tmp/scap-content -iname "*${OS_ID}*-xccdf.xml" 2>/dev/null | head -1)
+  echo "No ubuntu-named file found, trying debian as closest relative..."
+  CONTENT=$(find /tmp/scap-content \( -iname "*-ds.xml" -o -iname "*-xccdf.xml" \) \
+    | grep -i debian | head -1)
 fi
+
 if [ -z "$CONTENT" ]; then
-  echo "No exact match for $OS_ID, falling back to Ubuntu 22.04 content"
-  CONTENT=$(find /tmp/scap-content -iname "ssg-ubuntu2204-xccdf.xml" 2>/dev/null | head -1)
+  echo "Still nothing - picking the FIRST available datastream/xccdf file as last resort"
+  CONTENT=$(find /tmp/scap-content \( -iname "*-ds.xml" -o -iname "*-xccdf.xml" \) | head -1)
 fi
+
 echo "Using content file: $CONTENT"
 
 if [ -z "$CONTENT" ]; then
-  echo "ERROR: No usable SCAP content found. Available files:"
-  find /tmp/scap-content -iname "*xccdf.xml" | head -20
+  echo "ERROR: Truly no usable content file found anywhere in the package."
   exit 1
 fi
 
