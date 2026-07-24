@@ -1,5 +1,5 @@
 {
-  "subscriptionId": "your-subscription-id-here",
+  "subscriptionId": "dd5984b9-6dac-4387-9dc2-17be0fe53dbd",
   "vms": [
     { "vm": "Test-for-cis", "rg": "Trivikrama" }
   ]
