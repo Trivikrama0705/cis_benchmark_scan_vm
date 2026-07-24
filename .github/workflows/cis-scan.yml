@@ -56,12 +56,12 @@ jobs:
 
       - name: Run scan on ${{ matrix.vm }} (uploads directly to blob storage)
         run: |
+          sed "s|__SAS_URL_PLACEHOLDER__|${{ steps.sas.outputs.sas_url }}|" scripts/scan-cis.sh > /tmp/scan-with-sas.sh
           az vm run-command invoke \
             --resource-group "${{ matrix.rg }}" \
             --name "${{ matrix.vm }}" \
             --command-id RunShellScript \
-            --scripts @scripts/scan-cis.sh \
-            --parameters "sasurl=${{ steps.sas.outputs.sas_url }}" \
+            --scripts @/tmp/scan-with-sas.sh \
             --query "value[0].message" -o tsv
 
       - name: Download real report from blob storage
