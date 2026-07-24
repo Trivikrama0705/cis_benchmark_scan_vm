@@ -38,6 +38,18 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Check VM power state
+        run: |
+          STATE=$(az vm get-instance-view \
+            --resource-group "${{ matrix.rg }}" \
+            --name "${{ matrix.vm }}" \
+            --query "instanceView.statuses[?starts_with(code, 'PowerState/')].displayStatus" \
+            -o tsv)
+          echo "VM power state: $STATE"
+          if [ "$STATE" != "VM running" ]; then
+            echo "::warning::VM is not running (state: $STATE). Scan may fail."
+          fi
+
       - name: Run scan on ${{ matrix.vm }}
         run: |
           az vm run-command invoke \
@@ -46,11 +58,23 @@ jobs:
             --command-id RunShellScript \
             --scripts @scripts/scan-cis.sh \
             --query "value[0].message" -o tsv > raw-output.txt
+          echo "----- RAW OUTPUT START -----"
+          cat raw-output.txt
+          echo "----- RAW OUTPUT END -----"
+
+      - name: Upload raw output for debugging
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: raw-output-${{ matrix.vm }}
+          path: raw-output.txt
 
       - name: Decode and save report
         run: |
           mkdir -p reports
           grep -A1 "stdout" raw-output.txt | tail -1 | base64 -d > "reports/${{ matrix.vm }}-$(date +%Y-%m-%d).html" || echo "decode failed, check raw-output.txt"
+          echo "----- REPORT FILE SIZE -----"
+          ls -la "reports/${{ matrix.vm }}-$(date +%Y-%m-%d).html"
 
       - name: Commit report to repo
         run: |
