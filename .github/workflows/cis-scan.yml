@@ -56,7 +56,8 @@ jobs:
 
       - name: Run scan on ${{ matrix.vm }} (uploads directly to blob storage)
         run: |
-          sed "s|__SAS_URL_PLACEHOLDER__|${{ steps.sas.outputs.sas_url }}|" scripts/scan-cis.sh > /tmp/scan-with-sas.sh
+          SAS_URL_B64=$(echo -n "${{ steps.sas.outputs.sas_url }}" | base64 -w0)
+          sed "s|__SAS_URL_PLACEHOLDER__|${SAS_URL_B64}|" scripts/scan-cis.sh > /tmp/scan-with-sas.sh
           az vm run-command invoke \
             --resource-group "${{ matrix.rg }}" \
             --name "${{ matrix.vm }}" \
