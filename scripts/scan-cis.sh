@@ -7,6 +7,9 @@ OS_ID=$(grep -oP '(?<=^ID=).+' /etc/os-release 2>/dev/null | tr -d '"' || echo "
 OS_VERSION=$(grep -oP '(?<=^VERSION_ID=).+' /etc/os-release 2>/dev/null | tr -d '"' || echo "")
 echo "Detected OS: $OS_ID $OS_VERSION"
 
+echo "=== Cleaning up leftovers from any previous run ==="
+rm -rf /tmp/scap-content /tmp/content.zip /tmp/report.html /tmp/results.xml
+
 echo "=== Installing OpenSCAP scanner + tools ==="
 sudo apt-get update -y
 sudo add-apt-repository universe -y || true
@@ -27,7 +30,7 @@ fi
 
 curl -sL -o /tmp/content.zip "$LATEST_URL"
 mkdir -p /tmp/scap-content
-unzip -q /tmp/content.zip -d /tmp/scap-content
+unzip -oq /tmp/content.zip -d /tmp/scap-content
 
 echo "=== Locating best-matching content file for $OS_ID $OS_VERSION ==="
 CONTENT=$(find /tmp/scap-content -iname "ssg-${OS_ID}${OS_VERSION//./}-xccdf.xml" 2>/dev/null | head -1)
@@ -35,7 +38,7 @@ if [ -z "$CONTENT" ]; then
   CONTENT=$(find /tmp/scap-content -iname "*${OS_ID}*-xccdf.xml" 2>/dev/null | head -1)
 fi
 if [ -z "$CONTENT" ]; then
-  echo "No exact match for $OS_ID, falling back to Ubuntu content"
+  echo "No exact match for $OS_ID, falling back to Ubuntu 22.04 content"
   CONTENT=$(find /tmp/scap-content -iname "ssg-ubuntu2204-xccdf.xml" 2>/dev/null | head -1)
 fi
 echo "Using content file: $CONTENT"
